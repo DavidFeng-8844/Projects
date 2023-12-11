@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../../Seven_Seg"
+		},
+		{
+			"name": "Step_Motor_28BYJ-48",
+			"path": ".."
+		},
+		{
+			"path": "../../Blinker"
+		},
+		{
+			"name": "Pi_Test",
+			"path": "../../Pi_Test"
+		}
+	],
+	"settings": {}
+}

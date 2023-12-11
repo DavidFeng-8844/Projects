@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"name": "Seven_Seg",
+			"path": ".."
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}

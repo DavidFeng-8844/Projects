@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "Seven_Seg"
+		},
+		{
+			"name": "Test",
+			"path": "Test"
+		},
+		{
+			"name": "ESP8266-SevSegClock",
+			"path": "ESP8266-SevSegClock"
+		}
+	],
+	"settings": {}
+}
