@@ -222,7 +222,7 @@ void find_extremes(filter_avg_t *filter, axis_info_t *sample) {
     }
   }
   if (min_found = 1) {
-    Serial.println("Min Value found within one second!");
+    //Serial.println("Min Value found within one second!");
     Serial.print("Average Min Value: ");
     Serial.println(cur_avr_min);
   } else {
