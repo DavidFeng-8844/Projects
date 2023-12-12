@@ -22,7 +22,7 @@ int16_t gx, gy, gz;
 #define SLOW_WALK_TIME_LIMIT_MS 10000 /* 10s - time without a valid step to reset step count */
 #define STEP_OK 8                   /* Number of consecutive valid steps */
 #define MIN_WAIT 1000               /* Wait time between max and min  */
-#define SENSITIVITY 1000           /* Sensitivity of the sensor */
+#define SENSITIVITY 10000           /* Sensitivity of the sensor */
 #define THERSHOLD_CNT 4              /* Number of threshold values */
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -145,6 +145,9 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   static slid_reg_t slid;
   static axis_info_t sample;
   static threshold_t threshold;
+  static int possibleStep = 0;
+  static int test_thd;
+  int cur_test_thd;
 
   // Initialize structures on the first call
   if (sampleCount == 0) {
@@ -157,8 +160,26 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   threshold = find_extremes(&filter, &sample, &threshold);
 
   // Update dynamic precision
-  int test_thd = find_threshold(&threshold);
-  Serial.println("Current Threshold: ");
+  cur_test_thd = find_threshold(&threshold);
+  if (cur_test_thd != test_thd) {
+    possibleStep++;
+    test_thd = cur_test_thd;
+    Serial.println("===============");
+    Serial.print("|\n|\n");
+    Serial.print("\n|\tThreshold Upated:\t");
+    Serial.print(cur_test_thd);
+    /*
+    Serial.println("|");
+    Serial.print("|\n|\n");
+    Serial.print("|\n|\n");
+    Serial.print("\n|\tPossible Steps: \t");
+    Serial.print(possibleStep);
+    Serial.println("|");
+    Serial.print("|\n|\n");
+    */
+    Serial.println("===============");
+  }
+  
 
   // Update dynamic precision
   //char slidUpdated = slid_update(&slid, &filteredSample);
@@ -278,6 +299,11 @@ int find_threshold (threshold_t * threshold) {
   }
   max_avr = sum_avr_max / threshold->count;
   min_avr = sum_avr_min / threshold->count;
+  //Test print
+  Serial.print("buffer max & min: ");
+  Serial.print(max_avr);
+  Serial.print("\t");
+  Serial.println(min_avr);
   //Update the cur_thd if the difference between max_avr and min_avr is larger thatn the sensitivity
   if (max_avr - min_avr > SENSITIVITY) {
     threshold->cur_thd = (max_avr + min_avr) / 2;
