@@ -78,6 +78,7 @@ threshold_t find_extremes(filter_avg_t * filter, axis_info_t * sample, threshold
 unsigned long GetTime();
 int find_threshold(threshold_t * threshold);
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample);
+int possible_step(int cur_test_thd, threshold_t * threshold, int possibleStep);
 void peak_update(peak_value_t *peak, axis_info_t *cur_sample);
 char slid_update(slid_reg_t *slid, axis_info_t *cur_sample);
 char is_most_active(peak_value_t *peak);
@@ -146,6 +147,7 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   static axis_info_t sample;
   static threshold_t threshold;
   static int possibleStep = 0;
+  int possibleStepCount = 0;
   static int test_thd;
   int cur_test_thd;
 
@@ -162,25 +164,26 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   // Update dynamic precision
   cur_test_thd = find_threshold(&threshold);
   if (cur_test_thd != test_thd) {
-    possibleStep++;
     test_thd = cur_test_thd;
     Serial.println("===============");
     Serial.print("|\n|\n");
-    Serial.print("\n|\tThreshold Upated:\t");
-    Serial.print(cur_test_thd);
-    /*
-    Serial.println("|");
-    Serial.print("|\n|\n");
-    Serial.print("|\n|\n");
-    Serial.print("\n|\tPossible Steps: \t");
-    Serial.print(possibleStep);
-    Serial.println("|");
-    Serial.print("|\n|\n");
-    */
+    Serial.print("|\tThreshold Upated:\t");
+    Serial.println(cur_test_thd);
     Serial.println("===============");
   }
-  
-
+  // Detect possible steps
+  // Maximum peak > (dynamic threshold + sensitivity/2)
+  // Minimum peak < (dynamic threshold – sensitivity/2)
+  //print the possible step count
+  possibleStepCount = possible_step(test_thd, &threshold, possibleStep);
+  if (possibleStepCount != possibleStep) {
+    possibleStep = possibleStepCount;
+    Serial.println("+++++++++++++++++++++++");
+    Serial.print("|\n|\n");
+    Serial.print("|\tPossible Step:\t");
+    Serial.println(possibleStep);
+    Serial.println("+++++++++++++++++++++++");
+  }
   // Update dynamic precision
   //char slidUpdated = slid_update(&slid, &filteredSample);
 
@@ -287,7 +290,7 @@ threshold_t find_extremes(filter_avg_t *filter, axis_info_t *sample, threshold_t
 int find_threshold (threshold_t * threshold) {
   // The dynamic threshold is updated every time the difference between the
   // maximum and the minimum is greater than the SENSITIVITY.
-  
+
   //Initialize the variables every time before the loop
   int sum_avr_max = 0, sum_avr_min = 0;
   int max_avr, min_avr = 0;
@@ -309,6 +312,19 @@ int find_threshold (threshold_t * threshold) {
     threshold->cur_thd = (max_avr + min_avr) / 2;
   }
   return threshold->cur_thd;
+}
+
+int possible_step (int test_thd, threshold_t * threshold, int possibleStep) {
+  int max_peak;
+  int min_peak;
+
+  // Compare the maximum and minimum values of the current sample with the dynamic threshold
+  max_peak = (threshold->max[threshold->count].x + threshold->max[threshold->count].y + threshold->max[threshold->count].z) / 3;
+  min_peak = (threshold->min[threshold->count].x + threshold->min[threshold->count].y + threshold->min[threshold->count].z) / 3;
+  if (max_peak > test_thd + SENSITIVITY / 2 && min_peak < test_thd - SENSITIVITY / 2) {
+    possibleStep++;
+  }
+  return possibleStep;
 }
 
 void peak_update(peak_value_t *peak, axis_info_t *cur_sample) {
