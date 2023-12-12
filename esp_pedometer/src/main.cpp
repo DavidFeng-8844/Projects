@@ -22,10 +22,6 @@ int16_t gx, gy, gz;
 #define SLOW_WALK_TIME_LIMIT_MS 10000 /* 10s - time without a valid step to reset step count */
 #define STEP_OK 8                   /* Number of consecutive valid steps */
 #define MIN_WAIT 1000               /* Wait time between max and min  */
-#define SENSITIVITY 1000           /* Sensitivity of the sensor */
-#define THESHOLD_CNT 4              /* Number of threshold values */
-#define MAX(a,b) ((a) > (b) ? (a) : (b)) 
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 unsigned int lastPos = 0;         /* Previous position */
 unsigned int newMax = 0, newMin = 0; /* Maximum and minimum values */
@@ -35,8 +31,6 @@ bool pSta = RISING_EDGE;           /* 3D data state */
 long lastTime = 0;                 /* Time of the last walkSta transition */
 unsigned char stepOK = 0;          /* Initial step counter - reset after an invalid step */
 unsigned long stepCount = 0;       /* Total step count */
-static int * cur_avr_min = 0;       /* Current average minimum value */
-static int * cur_avr_max = 0;       /* Current average maximum value */
 
 // Structure definitions
 typedef struct {
@@ -63,19 +57,13 @@ typedef struct {
     unsigned char count;
 } filter_avg_t;
 
-// Array to record the data of the theshold buffer of four sets of data
-int * thd_data = {};
-
 // Function prototypes
 static void filter_avg_init(filter_avg_t *filter);
-int find_extremes(filter_avg_t *filter, axis_info_t *sample);
-unsigned long GetTime();
-//Unused functions
 static void peak_value_init(peak_value_t *peak);
 static void slid_reg_init(slid_reg_t *slid);
 unsigned long Step_Count(float ax, float ay, float az);
-
-
+void find_extremes(filter_avg_t *filter, axis_info_t *sample);
+unsigned long GetTime();
 
 void setup() {
     Wire.begin();
@@ -146,21 +134,20 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
     slid_reg_init(&slid);
   }
 
-  // Find the extreme value and the current threshold
-  find_extremes(&filter, &sample);
+  // Update dynamic threshold
+  //peak_update(&peak, &filteredSample);
 
-  // Update dynamic precision
-  //int thd = find_theshold(threshold, *cur_avr_max, *cur_avr_min);
-  //Serial.println(thd);
+  // Find the extreme value
+  find_extremes(&filter, &sample);
 
   // Update dynamic precision
   //char slidUpdated = slid_update(&slid, &filteredSample);
 
   // Detect steps
-  //detect_step(&peak, &slid, &sample, &stepCount);
+  detect_step(&peak, &slid, &sample, &stepCount);
 
   // Increment sample count
-  //sampleCount++;
+  sampleCount++;
 
   return stepCount;
 }
@@ -186,13 +173,12 @@ void filter_calculate(filter_avg_t *filter, axis_info_t *sample) {
   sample->z = z_sum / FILTER_CNT;
 }
 
-int find_extremes(filter_avg_t *filter, axis_info_t *sample) {
+void find_extremes(filter_avg_t *filter, axis_info_t *sample) {
   unsigned long window_start_time = GetTime();
   axis_info_t max_value, min_value;
-  int sp_avr_min, sp_avr_max = 0;
+  int cur_avr_min, sp_avr_min, cur_avr_max, sp_avr_max = 0;
   bool max_found, min_found = 0;
-  *cur_avr_max = 0; //Initialize current average maximum value
-  *cur_avr_min = 0;
+
   //Initialize max and min values
   max_value.x = max_value.y = max_value.z = 0;
   min_value.x = min_value.y = min_value.z = 0;
@@ -206,10 +192,10 @@ int find_extremes(filter_avg_t *filter, axis_info_t *sample) {
     if (sample->z > max_value.z) max_value.z = sample->z;
     //delay(SAMPLE_RATE); // Wait for the next sample
     //Compare the average maxium 
-    *cur_avr_max = (max_value.x + max_value.y + max_value.z) / 3;
+    cur_avr_max = (max_value.x + max_value.y + max_value.z) / 3;
     sp_avr_max = (sample->x + sample->y + sample->z) / 3;
     // break the loop if the current maximum value is greater than the sample maximum value
-    if (sp_avr_max < *cur_avr_max) {
+    if (sp_avr_max < cur_avr_max) {
       max_found = 1;
       break;
     }
@@ -226,10 +212,10 @@ int find_extremes(filter_avg_t *filter, axis_info_t *sample) {
       if (sample->z < min_value.z) min_value.z = sample->z;
       //delay(SAMPLE_RATE); // Wait for the next sample
       //Compare the average minium
-      *cur_avr_min = (max_value.x + max_value.y + max_value.z) / 3;
+      cur_avr_min = (max_value.x + max_value.y + max_value.z) / 3;
       sp_avr_min = (sample->x + sample->y + sample->z) / 3;
       // break the loop if the current minimum value is less than the sample minimum value
-      if (sp_avr_min > *cur_avr_min) {
+      if (sp_avr_min > cur_avr_min) {
         min_found = 1;
         break;
       }
@@ -238,33 +224,13 @@ int find_extremes(filter_avg_t *filter, axis_info_t *sample) {
   if (min_found = 1) {
     //Serial.println("Min Value found within one second!");
     Serial.print("Average Min Value: ");
-    Serial.println(*cur_avr_min);
+    Serial.println(cur_avr_min);
   } else {
     Serial.println("No Min Value found within one second.");
   }
-  return (*cur_avr_min + *cur_avr_max) / 2; //return the average of the maximum and minimum values
+
+
 }
-
-int find_theshold (int threshold, int max, int min) {
-  static unsigned int thd_sum = 0;
-  static unsigned int sample_size = 0; 
-  static unsigned int init_thd = threshold;
-
-  sample_size++;
-  thd_sum += threshold;
-  if (sample_size > THESHOLD_CNT) {
-    sample_size = 1;
-    thd_sum = threshold;
-  }
-  if (max - min > SENSITIVITY) {
-    init_thd = thd_sum / sample_size;
-    Serial.println("Threshold Updated!");
-  }
-  return init_thd;
-}
-
-
-
 void peak_update(peak_value_t *peak, axis_info_t *cur_sample) {
   static unsigned int sampleSize = 0;
   sampleSize++;
@@ -328,6 +294,7 @@ char is_most_active(peak_value_t *peak) {
   } else if (z_change > x_change && z_change > y_change && z_change >= ACTIVE_PRECISION) {
     res = MOST_ACTIVE_Z;
   }
+
   return res;
 }
 
