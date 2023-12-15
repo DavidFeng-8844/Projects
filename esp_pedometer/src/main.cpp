@@ -32,7 +32,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 unsigned int newMax = 0, newMin = 0; /* Maximum and minimum values */
 bool walkSta = false;              /* State for detecting the first step */
-bool walkOkSta = false;            /* State for detecting 7 valid steps within 10s */
 long lastTime = 0;                 /* Time of the last walkSta transition */
 unsigned char stepOK = 0;          /* Initial step counter - reset after an invalid step */
 unsigned long stepCount = 0;       /* Total step count */
@@ -65,7 +64,7 @@ unsigned long GetTime();
 int find_threshold(threshold_t * threshold);
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample);
 int possible_step(int cur_test_thd, threshold_t * threshold, int possibleStep);
-unsigned long Step_Count(float ax, float ay, float az);
+bool Step_Count();
 
 
 void setup() {
@@ -91,42 +90,88 @@ void setup() {
 } 
 
 void loop() {
-  unsigned long currentStepCount = Step_Count(ax, ay, az); //Pass the values of the accelerometer to the step count function
-  // the algorithm considers that a person is walking or running
-  //if at least eight consecutive possible steps occur, which is an extra
-  //measure of the algorithm to avoid false positives due to isolated
-  //events
-  if (currentStepCount > stepCount) {
-    stepCount = currentStepCount;
-    if (currentStepCount > STEP_OK) { //if the current step count is greater than 8
-    if (!walkSta) {               //if the walk state is false
-      walkSta = true;           //set the walk state to true
-      lastTime = GetTime();     //set the last time to the current time
-    }else {
+  static int step_valid; //An 8 steps buffer to validate the step count
+  //Display the Walk State on the OLED screen only once
+  static int display_init = 0;
+  bool new_step = false;
+  while (display_init < 1) {
+    display.clearDisplay();
+    display.setTextSize(1.2); // Normal 1:1 pixel scale
+    display.setTextColor(SSD1306_WHITE); // Draw white text
+    display.setCursor(0,28); // Start at top-left corner
+    display.println("Walk State: ");
+    display.println("FALSE");
+    // Display the step count on the OLED screen
+    display.println("Step Count: ");
+    display.println("0");
+    display.display();
+    display_init++;
+  }
+  new_step = Step_Count(); //call the step count function to detect the step
+  if (new_step) {
+    if (step_valid > STEP_OK - 1) { //if the current step count is greater than 8
       if (GetTime() - lastTime > 10000) {   //if the current time minus the last time is greater than 10 seconds
         walkSta = false;                  //set the walk state to false
-      }else {
-        walkSta = true;
-        digitalWrite(LED_BUILTIN, HIGH);
-        Serial.print("Step Count: ");
-        Serial.println(stepCount);
-        Serial.println("\t\t+++++++++++++++++++++++");
-        Serial.print("|\n|\n");
-        Serial.print("|\tStep Count:\t");
-        Serial.println(stepCount);
-        Serial.println("\t\t+++++++++++++++++++++++");
-        // Display the step count on the OLED screen
         display.clearDisplay();
-        display.setTextSize(1); // Normal 1:1 pixel scale
+        display.setTextSize(1.2); // Normal 1:1 pixel scale
         display.setTextColor(SSD1306_WHITE); // Draw white text
         display.setCursor(0,28); // Start at top-left corner
-        display.println("Step Count: ");
-        display.println(stepCount);
+        display.print("Walk State: ");
+        display.println("OVER 10 SECONDS");
+        display.print("Step valid: ");
+        display.println(step_valid);
         display.display();
+        step_valid = 0;
+      }else {
+        if (walkSta == false) {
+          walkSta = true;
+          stepCount += step_valid;
+          display.clearDisplay();
+          display.setTextSize(1.2); // Normal 1:1 pixel scale
+          display.setTextColor(SSD1306_WHITE); // Draw white text
+          display.setCursor(0,28); // Start at top-left corner
+          display.print("Walk State: ");
+          display.println("Enter Walk State");
+          display.print("Step Count: ");
+          display.println(stepCount);
+          display.display();
+        }else {
+          lastTime = GetTime();
+          stepCount++;
+          digitalWrite(LED_BUILTIN, HIGH);
+          Serial.print("Step Count: ");
+          Serial.println(stepCount);
+          Serial.println("\t\t+++++++++++++++++++++++");
+          Serial.print("|\n|\n");
+          Serial.print("|\tStep Count:\t");
+          Serial.println(stepCount);
+          Serial.println("\t\t+++++++++++++++++++++++");
+          // Display the walkstate and step counts on the OLED screen
+          display.clearDisplay();
+          display.setTextSize(1.2); // Normal 1:1 pixel scale
+          display.setTextColor(SSD1306_WHITE); // Draw white text
+          display.setCursor(0,28); // Start at top-left corner
+          display.print("Walk State: ");
+          display.println("TRUE");
+          display.print("Step Count: ");
+          display.println(stepCount);
+          display.display();
+        }        
       }
-    }
     }else {
-          walkSta = false;
+      lastTime = GetTime();
+      walkSta = false;
+      //Display the Walk State and step count on the OLED screen
+      display.clearDisplay();
+      display.setTextSize(1.2); // Normal 1:1 pixel scale
+      display.setTextColor(SSD1306_WHITE); // Draw white text
+      display.setCursor(0,28); // Start at top-left corner
+      display.print("Walk State: ");
+      display.println("FALSE since not enough steps (8)");
+      display.print("Possible Step: ");
+      display.println(step_valid);
+      display.display();
+      step_valid++;
     }      
   }
   else {
@@ -145,18 +190,18 @@ static void filter_avg_init(filter_avg_t *filter) {
 
 
 // Step Count function
-unsigned long Step_Count(float axis0, float axis1, float axis2) {
+bool Step_Count() {
   static unsigned int sampleCount = 0;
-
   // Filter initialization
   static filter_avg_t filter;
   //static peak_value_t peak;
   static axis_info_t sample;
   static threshold_t threshold;
   static int possibleStep = 0;
-  int possibleStepCount = 0;
   static int test_thd;
+  int possibleStepCount = 0;
   int cur_test_thd;
+  bool step = false;
 
   // Initialize structures on the first call
   if (sampleCount == 0) {
@@ -183,14 +228,20 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   possibleStepCount = possible_step(test_thd, &threshold, possibleStep);
   if (possibleStepCount != possibleStep) {
     possibleStep = possibleStepCount;
+    step = true;
+    return step;
+    /*
     Serial.println("\t\t+++++++++++++++++++++++");
     Serial.print("|\n|\n");
     Serial.print("|\tPossible Step:\t");
     Serial.println(possibleStep);
     Serial.println("\t\t+++++++++++++++++++++++");
+    */
   }
-
-  return possibleStep;
+  else {
+    step = false;
+    return step;
+  }
 }
 
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample) {
