@@ -1,43 +1,41 @@
 #include "Wire.h"
 #include "MPU6050.h"
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 MPU6050 accelgyro;
 int16_t ax, ay, az;
 int16_t gx, gy, gz;
 
 #define SAMPLE_RATE 10              /* Sample rate in ms */
-#define OUTPUT_FILTER_SAMPLE 0      /* Output filtered sample */
 #define P_P_DIFF 1000               /* Threshold value for the difference between maximum and minimum values of 3D data */ //defulat to 1000
-#define RISING_EDGE 1               /* Rising edge state */
 #define FALLING_EDGE 0              /* Falling edge state */
 #define FILTER_CNT 4
-#define DYNAMIC_PRECISION 30
-#define ACTIVE_PRECISION 60
 #define SAMPLE_SIZE 4
 #define WINDOW_SIZE 300
-#define MOST_ACTIVE_NULL 0
-#define MOST_ACTIVE_X 1
-#define MOST_ACTIVE_Y 2
-#define MOST_ACTIVE_Z 3
-#define FAST_WALK_TIME_LIMIT_MS 200 /* ms */
-#define SLOW_WALK_TIME_LIMIT_MS 10000 /* 10s - time without a valid step to reset step count */
-#define STEP_OK 8                   /* Number of consecutive valid steps */
 #define MIN_WAIT 1000               /* Wait time between max and min  */
+#define STEP_OK 8                   /* Number of consecutive valid steps */
 #define SENSITIVITY 10000           /* Sensitivity of the sensor */
-#define THERSHOLD_CNT 4              /* Number of threshold values */
+#define THRESHOLD_CNT 4
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
-#define THRESHOLD_CNT 4
 
-unsigned int lastPos = 0;         /* Previous position */
+// The define for Oled 
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for SSD1306 display connected using I2C
+#define OLED_RESET     -1 // Reset pin
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
 unsigned int newMax = 0, newMin = 0; /* Maximum and minimum values */
 bool walkSta = false;              /* State for detecting the first step */
 bool walkOkSta = false;            /* State for detecting 7 valid steps within 10s */
-bool pSta = RISING_EDGE;           /* 3D data state */
 long lastTime = 0;                 /* Time of the last walkSta transition */
 unsigned char stepOK = 0;          /* Initial step counter - reset after an invalid step */
 unsigned long stepCount = 0;       /* Total step count */
-static int * cur_avr_min = 0;       /* Current average minimum value */
-static int * cur_avr_max = 0;       /* Current average maximum value */
 
 // Structure definitions
 typedef struct {
@@ -60,18 +58,6 @@ typedef struct {
     int cur_thd;
 } threshold_t;
 
-typedef struct {
-    axis_info_t newmax;
-    axis_info_t newmin;
-    axis_info_t oldmax;
-    axis_info_t oldmin;
-} peak_value_t;
-
-typedef struct {
-    axis_info_t new_sample;
-    axis_info_t old_sample;
-} slid_reg_t;
-
 // Function prototypes
 static void filter_avg_init(filter_avg_t * filter);
 threshold_t find_extremes(filter_avg_t * filter, axis_info_t * sample, threshold_t * threshold);
@@ -79,13 +65,6 @@ unsigned long GetTime();
 int find_threshold(threshold_t * threshold);
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample);
 int possible_step(int cur_test_thd, threshold_t * threshold, int possibleStep);
-void peak_update(peak_value_t *peak, axis_info_t *cur_sample);
-char slid_update(slid_reg_t *slid, axis_info_t *cur_sample);
-char is_most_active(peak_value_t *peak);
-void detect_step(peak_value_t *peak, slid_reg_t *slid, axis_info_t *cur_sample, unsigned int *stepCount);
-//Unused functions
-static void peak_value_init(peak_value_t * peak);
-static void slid_reg_init(slid_reg_t * slid);
 unsigned long Step_Count(float ax, float ay, float az);
 
 
@@ -100,17 +79,55 @@ void setup() {
     Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
 
     pinMode(LED_BUILTIN, OUTPUT);
-}
+    
+    // initialize the OLED object
+    if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+      Serial.println(F("SSD1306 allocation failed"));
+      for(;;); // Don't proceed, loop forever
+    }
+
+    // Clear the buffer.
+    display.clearDisplay();
+} 
 
 void loop() {
   unsigned long currentStepCount = Step_Count(ax, ay, az); //Pass the values of the accelerometer to the step count function
-  //Serial.println(currentStepCount);
+  // the algorithm considers that a person is walking or running
+  //if at least eight consecutive possible steps occur, which is an extra
+  //measure of the algorithm to avoid false positives due to isolated
+  //events
   if (currentStepCount > stepCount) {
-      // Incremented step count
-      stepCount = currentStepCount;
-      //Serial.print("Step Count: ");
-      //Serial.println(stepCount);
-      digitalWrite(LED_BUILTIN, HIGH);
+    stepCount = currentStepCount;
+    if (currentStepCount > STEP_OK) { //if the current step count is greater than 8
+    if (!walkSta) {               //if the walk state is false
+      walkSta = true;           //set the walk state to true
+      lastTime = GetTime();     //set the last time to the current time
+    }else {
+      if (GetTime() - lastTime > 10000) {   //if the current time minus the last time is greater than 10 seconds
+        walkSta = false;                  //set the walk state to false
+      }else {
+        walkSta = true;
+        digitalWrite(LED_BUILTIN, HIGH);
+        Serial.print("Step Count: ");
+        Serial.println(stepCount);
+        Serial.println("\t\t+++++++++++++++++++++++");
+        Serial.print("|\n|\n");
+        Serial.print("|\tStep Count:\t");
+        Serial.println(stepCount);
+        Serial.println("\t\t+++++++++++++++++++++++");
+        // Display the step count on the OLED screen
+        display.clearDisplay();
+        display.setTextSize(1); // Normal 1:1 pixel scale
+        display.setTextColor(SSD1306_WHITE); // Draw white text
+        display.setCursor(0,28); // Start at top-left corner
+        display.println("Step Count: ");
+        display.println(stepCount);
+        display.display();
+      }
+    }
+    }else {
+          walkSta = false;
+    }      
   }
   else {
       digitalWrite(LED_BUILTIN, LOW);
@@ -126,24 +143,14 @@ static void filter_avg_init(filter_avg_t *filter) {
   filter->count = 0;
 }
 
-static void peak_value_init(peak_value_t *peak) {
-  memset(peak, 0, sizeof(peak_value_t));
-}
-
-static void slid_reg_init(slid_reg_t *slid) {
-  memset(slid, 0, sizeof(slid_reg_t));
-}
-
 
 // Step Count function
 unsigned long Step_Count(float axis0, float axis1, float axis2) {
-  static unsigned int stepCount = 0;
   static unsigned int sampleCount = 0;
 
   // Filter initialization
   static filter_avg_t filter;
-  static peak_value_t peak;
-  static slid_reg_t slid;
+  //static peak_value_t peak;
   static axis_info_t sample;
   static threshold_t threshold;
   static int possibleStep = 0;
@@ -154,8 +161,6 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   // Initialize structures on the first call
   if (sampleCount == 0) {
     filter_avg_init(&filter);
-    peak_value_init(&peak);
-    slid_reg_init(&slid);
   }
 
   // Find the extreme value and the current threshold
@@ -178,22 +183,14 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   possibleStepCount = possible_step(test_thd, &threshold, possibleStep);
   if (possibleStepCount != possibleStep) {
     possibleStep = possibleStepCount;
-    Serial.println("+++++++++++++++++++++++");
+    Serial.println("\t\t+++++++++++++++++++++++");
     Serial.print("|\n|\n");
     Serial.print("|\tPossible Step:\t");
     Serial.println(possibleStep);
-    Serial.println("+++++++++++++++++++++++");
+    Serial.println("\t\t+++++++++++++++++++++++");
   }
-  // Update dynamic precision
-  //char slidUpdated = slid_update(&slid, &filteredSample);
 
-  // Detect steps
-  //detect_step(&peak, &slid, &sample, &stepCount);
-
-  // Increment sample count
-  //sampleCount++;
-
-  return stepCount;
+  return possibleStep;
 }
 
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample) {
@@ -230,6 +227,13 @@ threshold_t find_extremes(filter_avg_t *filter, axis_info_t *sample, threshold_t
   while (GetTime() - window_start_time < WINDOW_SIZE) {
     // Collect a sample
     filter_calculate(filter, sample);
+    // Print test sample
+    Serial.print("Test Sample: ");
+    Serial.print(sample->x);
+    Serial.print("\t");
+    Serial.print(sample->y);
+    Serial.print("\t");
+    Serial.println(sample->z);
     // Find the maximum value
     if (sample->x > max_value.x) max_value.x = sample->x;
     if (sample->y > max_value.y) max_value.y = sample->y;
@@ -276,7 +280,7 @@ threshold_t find_extremes(filter_avg_t *filter, axis_info_t *sample, threshold_t
       }
     }
   }
-  if (min_found = 1) {
+  if (min_found == 1) {
     Serial.print("Average max & min: ");
     Serial.print(cur_avr_max);
     Serial.print("\t");
@@ -321,147 +325,9 @@ int possible_step (int test_thd, threshold_t * threshold, int possibleStep) {
   // Compare the maximum and minimum values of the current sample with the dynamic threshold
   max_peak = (threshold->max[threshold->count].x + threshold->max[threshold->count].y + threshold->max[threshold->count].z) / 3;
   min_peak = (threshold->min[threshold->count].x + threshold->min[threshold->count].y + threshold->min[threshold->count].z) / 3;
-  if (max_peak > test_thd + SENSITIVITY / 2 && min_peak < test_thd - SENSITIVITY / 2) {
+  if (max_peak > test_thd + SENSITIVITY / 2.4 && min_peak < test_thd - SENSITIVITY / 4) {
     possibleStep++;
   }
   return possibleStep;
 }
 
-void peak_update(peak_value_t *peak, axis_info_t *cur_sample) {
-  static unsigned int sampleSize = 0;
-  sampleSize++;
-
-  if (sampleSize > SAMPLE_SIZE) {
-    sampleSize = 1;
-    peak->oldmax = peak->newmax;
-    peak->oldmin = peak->newmin;
-    peak_value_init(peak);
-  }
-
-  peak->newmax.x = MAX(peak->newmax.x, cur_sample->x);
-  peak->newmax.y = MAX(peak->newmax.y, cur_sample->y);
-  peak->newmax.z = MAX(peak->newmax.z, cur_sample->z);
-
-  peak->newmin.x = MIN(peak->newmin.x, cur_sample->x);
-  peak->newmin.y = MIN(peak->newmin.y, cur_sample->y);
-  peak->newmin.z = MIN(peak->newmin.z, cur_sample->z);
-}
-
-char slid_update(slid_reg_t *slid, axis_info_t *cur_sample) {
-  char res = 0;
-
-  if (abs((cur_sample->x - slid->new_sample.x)) > DYNAMIC_PRECISION) {
-    slid->old_sample.x = slid->new_sample.x;
-    slid->new_sample.x = cur_sample->x;
-    res = 1;
-  } else {
-    slid->old_sample.x = slid->new_sample.x;
-  }
-
-  if (abs((cur_sample->y - slid->new_sample.y)) > DYNAMIC_PRECISION) {
-    slid->old_sample.y = slid->new_sample.y;
-    slid->new_sample.y = cur_sample->y;
-    res = 1;
-  } else {
-    slid->old_sample.y = slid->new_sample.y;
-  }
-
-  if (abs((cur_sample->z - slid->new_sample.z)) > DYNAMIC_PRECISION) {
-    slid->old_sample.z = slid->new_sample.z;
-    slid->new_sample.z = cur_sample->z;
-    res = 1;
-  } else {
-    slid->old_sample.z = slid->new_sample.z;
-  }
-
-  return res;
-}
-
-char is_most_active(peak_value_t *peak) {
-  char res = MOST_ACTIVE_NULL;
-  short x_change = abs((peak->newmax.x - peak->newmin.x));
-  short y_change = abs((peak->newmax.y - peak->newmin.y));
-  short z_change = abs((peak->newmax.z - peak->newmin.z));
-
-  if (x_change > y_change && x_change > z_change && x_change >= ACTIVE_PRECISION) {
-    res = MOST_ACTIVE_X;
-  } else if (y_change > x_change && y_change > z_change && y_change >= ACTIVE_PRECISION) {
-    res = MOST_ACTIVE_Y;
-  } else if (z_change > x_change && z_change > y_change && z_change >= ACTIVE_PRECISION) {
-    res = MOST_ACTIVE_Z;
-  }
-  return res;
-}
-
-void detect_step(peak_value_t *peak, slid_reg_t *slid, axis_info_t *cur_sample, unsigned int *stepCount) {
-  static unsigned int stepCnt = 0;
-  // step detection logic
-  char active_axis = is_most_active(peak);
-  unsigned long currentTime = GetTime();
-
-  if (active_axis == MOST_ACTIVE_X) {
-    if (cur_sample->x > slid->old_sample.x && pSta == RISING_EDGE) {
-      pSta = FALLING_EDGE;
-      lastTime = currentTime;
-      newMin = slid->old_sample.x;
-    } else if (cur_sample->x < slid->old_sample.x && pSta == FALLING_EDGE) {
-      pSta = RISING_EDGE;
-      newMax = slid->old_sample.x;
-    }
-  } else if (active_axis == MOST_ACTIVE_Y) {
-    if (cur_sample->y > slid->old_sample.y && pSta == RISING_EDGE) {
-      pSta = FALLING_EDGE;
-      lastTime = currentTime;
-      newMin = slid->old_sample.y;
-    } else if (cur_sample->y < slid->old_sample.y && pSta == FALLING_EDGE) {
-      pSta = RISING_EDGE;
-      newMax = slid->old_sample.y;
-    }
-  } else if (active_axis == MOST_ACTIVE_Z) {
-    if (cur_sample->z > slid->old_sample.z && pSta == RISING_EDGE) {
-      pSta = FALLING_EDGE;
-      lastTime = currentTime;
-      newMin = slid->old_sample.z;
-    } else if (cur_sample->z < slid->old_sample.z && pSta == FALLING_EDGE) {
-      pSta = RISING_EDGE;
-      newMax = slid->old_sample.z;
-    }
-  }
-
-  if (pSta == RISING_EDGE) {
-    if (newMax - newMin > P_P_DIFF) {
-      if (walkSta == false) {
-        walkSta = true;
-        stepCnt = 0;
-      }
-
-      if (walkOkSta == false) {
-        walkOkSta = true;
-        lastTime = currentTime;
-        stepCnt++;
-      } else {
-        if ((currentTime - lastTime) >= FAST_WALK_TIME_LIMIT_MS) {
-          if (stepCnt < STEP_OK) {
-            stepCnt = 0;
-            walkOkSta = false;
-          }
-        } else {
-          stepCnt++;
-        }
-      }
-    }
-  }
-
-  if ((currentTime - lastTime) >= SLOW_WALK_TIME_LIMIT_MS) {
-    stepCnt = 0;
-    walkOkSta = false;
-  }
-
-  if (walkSta == true && walkOkSta == true && stepCnt >= STEP_OK) {
-    walkSta = false;
-    walkOkSta = false;
-    stepCnt = 0;
-    *stepCount += 1;
-  }
-
-}
