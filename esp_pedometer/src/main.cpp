@@ -36,8 +36,6 @@ bool walkOkSta = false;            /* State for detecting 7 valid steps within 1
 long lastTime = 0;                 /* Time of the last walkSta transition */
 unsigned char stepOK = 0;          /* Initial step counter - reset after an invalid step */
 unsigned long stepCount = 0;       /* Total step count */
-static int * cur_avr_min = 0;       /* Current average minimum value */
-static int * cur_avr_max = 0;       /* Current average maximum value */
 
 // Structure definitions
 typedef struct {
@@ -60,11 +58,6 @@ typedef struct {
     int cur_thd;
 } threshold_t;
 
-typedef struct {
-    axis_info_t new_sample;
-    axis_info_t old_sample;
-} slid_reg_t;
-
 // Function prototypes
 static void filter_avg_init(filter_avg_t * filter);
 threshold_t find_extremes(filter_avg_t * filter, axis_info_t * sample, threshold_t * threshold);
@@ -72,8 +65,6 @@ unsigned long GetTime();
 int find_threshold(threshold_t * threshold);
 void filter_calculate(filter_avg_t *filter, axis_info_t *sample);
 int possible_step(int cur_test_thd, threshold_t * threshold, int possibleStep);
-static void peak_value_init(peak_value_t * peak);
-static void slid_reg_init(slid_reg_t * slid);
 unsigned long Step_Count(float ax, float ay, float az);
 
 
@@ -152,24 +143,14 @@ static void filter_avg_init(filter_avg_t *filter) {
   filter->count = 0;
 }
 
-static void peak_value_init(peak_value_t *peak) {
-  memset(peak, 0, sizeof(peak_value_t));
-}
-
-static void slid_reg_init(slid_reg_t *slid) {
-  memset(slid, 0, sizeof(slid_reg_t));
-}
-
 
 // Step Count function
 unsigned long Step_Count(float axis0, float axis1, float axis2) {
-  static unsigned int stepCount = 0;
   static unsigned int sampleCount = 0;
 
   // Filter initialization
   static filter_avg_t filter;
-  static peak_value_t peak;
-  static slid_reg_t slid;
+  //static peak_value_t peak;
   static axis_info_t sample;
   static threshold_t threshold;
   static int possibleStep = 0;
@@ -180,8 +161,6 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   // Initialize structures on the first call
   if (sampleCount == 0) {
     filter_avg_init(&filter);
-    peak_value_init(&peak);
-    slid_reg_init(&slid);
   }
 
   // Find the extreme value and the current threshold
@@ -301,7 +280,7 @@ threshold_t find_extremes(filter_avg_t *filter, axis_info_t *sample, threshold_t
       }
     }
   }
-  if (min_found = 1) {
+  if (min_found == 1) {
     Serial.print("Average max & min: ");
     Serial.print(cur_avr_max);
     Serial.print("\t");
