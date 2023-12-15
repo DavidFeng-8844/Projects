@@ -112,7 +112,7 @@ void loop() {
     if (step_valid > STEP_OK - 1) { //if the current step count is greater than 8
       if (GetTime() - lastTime > 10000) {   //if the current time minus the last time is greater than 10 seconds
         walkSta = false;                  //set the walk state to false
-        step_valid = 0;
+        step_valid = 1;
         display.clearDisplay();
         display.setTextSize(1.2); // Normal 1:1 pixel scale
         display.setTextColor(SSD1306_WHITE); // Draw white text
