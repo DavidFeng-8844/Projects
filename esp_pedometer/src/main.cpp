@@ -61,13 +61,6 @@ typedef struct {
 } threshold_t;
 
 typedef struct {
-    axis_info_t newmax;
-    axis_info_t newmin;
-    axis_info_t oldmax;
-    axis_info_t oldmin;
-} peak_value_t;
-
-typedef struct {
     axis_info_t new_sample;
     axis_info_t old_sample;
 } slid_reg_t;
@@ -211,20 +204,12 @@ unsigned long Step_Count(float axis0, float axis1, float axis2) {
   possibleStepCount = possible_step(test_thd, &threshold, possibleStep);
   if (possibleStepCount != possibleStep) {
     possibleStep = possibleStepCount;
-    //Serial.println("\t\t+++++++++++++++++++++++");
-    //Serial.print("|\n|\n");
-    //Serial.print("|\tPossible Step:\t");
-    //Serial.println(possibleStep);
-    //Serial.println("\t\t+++++++++++++++++++++++");
+    Serial.println("\t\t+++++++++++++++++++++++");
+    Serial.print("|\n|\n");
+    Serial.print("|\tPossible Step:\t");
+    Serial.println(possibleStep);
+    Serial.println("\t\t+++++++++++++++++++++++");
   }
-  // Update dynamic precision
-  //char slidUpdated = slid_update(&slid, &filteredSample);
-
-  // Detect steps
-  //detect_step(&peak, &slid, &sample, &stepCount);
-
-  // Increment sample count
-  //sampleCount++;
 
   return possibleStep;
 }
@@ -317,10 +302,10 @@ threshold_t find_extremes(filter_avg_t *filter, axis_info_t *sample, threshold_t
     }
   }
   if (min_found = 1) {
-    //Serial.print("Average max & min: ");
-    //Serial.print(cur_avr_max);
-    //Serial.print("\t");
-    //Serial.println(cur_avr_min);
+    Serial.print("Average max & min: ");
+    Serial.print(cur_avr_max);
+    Serial.print("\t");
+    Serial.println(cur_avr_min);
   } else {
     Serial.println("No Min Value found within one second.");
   }
@@ -343,10 +328,10 @@ int find_threshold (threshold_t * threshold) {
   max_avr = sum_avr_max / threshold->count;
   min_avr = sum_avr_min / threshold->count;
   //Test print
-  //Serial.print("buffer max & min: ");
-  //Serial.print(max_avr);
-  //Serial.print("\t");
-  //Serial.println(min_avr);
+  Serial.print("buffer max & min: ");
+  Serial.print(max_avr);
+  Serial.print("\t");
+  Serial.println(min_avr);
   //Update the cur_thd if the difference between max_avr and min_avr is larger thatn the sensitivity
   if (max_avr - min_avr > SENSITIVITY) {
     threshold->cur_thd = (max_avr + min_avr) / 2;
@@ -361,7 +346,7 @@ int possible_step (int test_thd, threshold_t * threshold, int possibleStep) {
   // Compare the maximum and minimum values of the current sample with the dynamic threshold
   max_peak = (threshold->max[threshold->count].x + threshold->max[threshold->count].y + threshold->max[threshold->count].z) / 3;
   min_peak = (threshold->min[threshold->count].x + threshold->min[threshold->count].y + threshold->min[threshold->count].z) / 3;
-  if (max_peak > test_thd + SENSITIVITY / 2.3 && min_peak < test_thd - SENSITIVITY / 2.3) {
+  if (max_peak > test_thd + SENSITIVITY / 2.4 && min_peak < test_thd - SENSITIVITY / 4) {
     possibleStep++;
   }
   return possibleStep;
