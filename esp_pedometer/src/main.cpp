@@ -376,7 +376,7 @@ int possible_step (int test_thd, threshold_t * threshold, int possibleStep) {
   // Compare the maximum and minimum values of the current sample with the dynamic threshold
   max_peak = (threshold->max[threshold->count].x + threshold->max[threshold->count].y + threshold->max[threshold->count].z) / 3;
   min_peak = (threshold->min[threshold->count].x + threshold->min[threshold->count].y + threshold->min[threshold->count].z) / 3;
-  if (max_peak > test_thd + SENSITIVITY / 2.4 && min_peak < test_thd - SENSITIVITY / 4) {
+  if (max_peak > test_thd + SENSITIVITY / 2.4 && min_peak < test_thd - SENSITIVITY / 3) {
     possibleStep++;
   }
   return possibleStep;
